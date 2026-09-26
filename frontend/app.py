@@ -207,13 +207,13 @@ if generate_clicked:
     else:
         with st.spinner("🤖 Drafting your tailored legal document with Gemini AI..."):
             generated_doc = None
-            error_message = None
 
-            # 1. First attempt to call the configured FastAPI backend if not localhost or if accessible
-            try:
-                # Check secrets or env for backend URL
-                backend_url = st.secrets.get("BACKEND_URL", BACKEND_URL) if hasattr(st, "secrets") else BACKEND_URL
-                if backend_url and not ("localhost" in backend_url and "streamlit.app" in os.getenv("HOSTNAME", "")):
+            # On cloud deployments or when no remote backend URL is provided, generate directly for speed
+            backend_url = st.secrets.get("BACKEND_URL", "") if hasattr(st, "secrets") else os.getenv("BACKEND_URL", "")
+            
+            # If a custom remote backend is set (not localhost)
+            if backend_url and not any(loc in backend_url for loc in ["localhost", "127.0.0.1"]):
+                try:
                     resp = requests.post(
                         f"{backend_url.rstrip('/')}/generate",
                         json={
@@ -222,24 +222,19 @@ if generate_clicked:
                             "terms": terms,
                             "dates": dates,
                         },
-                        timeout=45,
+                        timeout=15,
                     )
-                    try:
-                        resp_data = resp.json()
-                        if resp.status_code == 200 and "document" in resp_data:
-                            generated_doc = resp_data["document"]
-                        else:
-                            error_message = resp_data.get("detail", f"Backend returned status {resp.status_code}")
-                    except Exception:
-                        error_message = f"Backend returned non-JSON response (status {resp.status_code})."
-            except Exception as e:
-                error_message = str(e)
+                    if resp.status_code == 200:
+                        resp_json = resp.json()
+                        if "document" in resp_json:
+                            generated_doc = resp_json["document"]
+                except Exception:
+                    pass
 
-            # 2. Seamless Direct Fallback if backend didn't return a doc (e.g. running standalone on Streamlit Cloud)
+            # Fast direct generation (instant Gemini SDK call)
             if not generated_doc:
                 try:
                     from ai_core.gemini_generator import GeminiDocumentGenerator
-                    # Ensure API key from secrets or env
                     generator = GeminiDocumentGenerator()
                     generated_doc = generator.generate_document(
                         document_type=document_type,
@@ -247,8 +242,8 @@ if generate_clicked:
                         terms=terms,
                         dates=dates,
                     )
-                except Exception as fallback_err:
-                    st.error(f"❌ Generation failed: {fallback_err}")
+                except Exception as err:
+                    st.error(f"❌ Generation failed: {err}")
 
             if generated_doc:
                 st.session_state.generated_text = sanitize_text(generated_doc)
