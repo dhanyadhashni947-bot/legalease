@@ -23,12 +23,19 @@ FALLBACK_MODELS = [
 
 class GeminiDocumentGenerator:
     def __init__(self):
-        if not GEMINI_API_KEY:
+        key = GEMINI_API_KEY
+        if not key:
+            try:
+                import streamlit as st
+                key = st.secrets.get("GEMINI_API_KEY", "")
+            except Exception:
+                pass
+
+        if not key:
             raise RuntimeError(
-                "GEMINI_API_KEY is not set. Add it to your .env file "
-                "(see .env.example)."
+                "GEMINI_API_KEY is not set. Add it to your .env file or Streamlit Cloud Secrets."
             )
-        genai.configure(api_key=GEMINI_API_KEY)
+        genai.configure(api_key=key)
 
     def generate_document(self, document_type: str, parties: str, terms: str, dates: str) -> str:
         """

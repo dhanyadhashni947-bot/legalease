@@ -206,29 +206,53 @@ if generate_clicked:
         st.warning("⚠️ Please fill in all fields before generating.")
     else:
         with st.spinner("🤖 Drafting your tailored legal document with Gemini AI..."):
+            generated_doc = None
+            error_message = None
+
+            # 1. First attempt to call the configured FastAPI backend if not localhost or if accessible
             try:
-                response = requests.post(
-                    f"{BACKEND_URL}/generate",
-                    json={
-                        "document_type": document_type,
-                        "parties": parties,
-                        "terms": terms,
-                        "dates": dates,
-                    },
-                    timeout=60,
-                )
-                if response.status_code == 200:
-                    st.session_state.generated_text = sanitize_text(
-                        response.json()["document"]
+                # Check secrets or env for backend URL
+                backend_url = st.secrets.get("BACKEND_URL", BACKEND_URL) if hasattr(st, "secrets") else BACKEND_URL
+                if backend_url and not ("localhost" in backend_url and "streamlit.app" in os.getenv("HOSTNAME", "")):
+                    resp = requests.post(
+                        f"{backend_url.rstrip('/')}/generate",
+                        json={
+                            "document_type": document_type,
+                            "parties": parties,
+                            "terms": terms,
+                            "dates": dates,
+                        },
+                        timeout=45,
                     )
-                    st.success("✅ Legal draft generated successfully!")
-                else:
-                    detail = response.json().get("detail", response.text)
-                    st.error(f"Generation error: {detail}")
-            except requests.exceptions.ConnectionError:
-                st.error(
-                    "❌ Unable to connect to the backend server. Please verify FastAPI is running at `http://127.0.0.1:8000`."
-                )
+                    try:
+                        resp_data = resp.json()
+                        if resp.status_code == 200 and "document" in resp_data:
+                            generated_doc = resp_data["document"]
+                        else:
+                            error_message = resp_data.get("detail", f"Backend returned status {resp.status_code}")
+                    except Exception:
+                        error_message = f"Backend returned non-JSON response (status {resp.status_code})."
+            except Exception as e:
+                error_message = str(e)
+
+            # 2. Seamless Direct Fallback if backend didn't return a doc (e.g. running standalone on Streamlit Cloud)
+            if not generated_doc:
+                try:
+                    from ai_core.gemini_generator import GeminiDocumentGenerator
+                    # Ensure API key from secrets or env
+                    generator = GeminiDocumentGenerator()
+                    generated_doc = generator.generate_document(
+                        document_type=document_type,
+                        parties=parties,
+                        terms=terms,
+                        dates=dates,
+                    )
+                except Exception as fallback_err:
+                    st.error(f"❌ Generation failed: {fallback_err}")
+
+            if generated_doc:
+                st.session_state.generated_text = sanitize_text(generated_doc)
+                st.success("✅ Legal draft generated successfully!")
 
 # --- Preview & Actions ---
 if st.session_state.generated_text:
