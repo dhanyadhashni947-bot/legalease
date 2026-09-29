@@ -209,7 +209,12 @@ if generate_clicked:
             generated_doc = None
 
             # On cloud deployments or when no remote backend URL is provided, generate directly for speed
-            backend_url = st.secrets.get("BACKEND_URL", "") if hasattr(st, "secrets") else os.getenv("BACKEND_URL", "")
+            backend_url = os.getenv("BACKEND_URL", "")
+            if not backend_url:
+                try:
+                    backend_url = st.secrets.get("BACKEND_URL", "")
+                except Exception:
+                    backend_url = ""
             
             # If a custom remote backend is set (not localhost)
             if backend_url and not any(loc in backend_url for loc in ["localhost", "127.0.0.1"]):
